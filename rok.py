@@ -2,10 +2,8 @@ import discord
 import os
 from discord.ext import commands
 
-# Render veya sunucu ortamından TOKEN'ı alıyoruz
 TOKEN = os.environ.get('DISCORD_TOKEN')
 
-# Sunucundaki ID'ler
 ROK_ROL_ID = 1525779899745308712
 ROLE_IDS = {
     "Infantry": 1526342009596547142,
@@ -19,28 +17,13 @@ intents.members = True
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# 1. Kayıt Modalı (İsim Girişi)
 class NicknameModal(discord.ui.Modal, title='RoK Kayıt Sistemi'):
-    oyuncu_ismi = discord.ui.TextInput(
-        label='Oyun içi isminiz nedir?', 
-        style=discord.TextStyle.short, 
-        placeholder='Örn: Kaan', 
-        required=True
-    )
+    oyuncu_ismi = discord.ui.TextInput(label='Oyun içi isminiz nedir?', placeholder='Örn: Kaan', required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
-        # İsmi güncelle
-        try:
-            await interaction.user.edit(nick=str(self.oyuncu_ismi))
-            await interaction.response.send_message(
-                f"Memnun olduk {self.oyuncu_ismi}! Şimdi birlik türünü/türlerini seç:", 
-                view=RoleSelectView(), 
-                ephemeral=True
-            )
-        except discord.Forbidden:
-            await interaction.response.send_message("İsmini değiştiremiyorum (Yetkim yok). Lütfen rol hiyerarşisini kontrol et.", ephemeral=True)
+        await interaction.user.edit(nick=str(self.oyuncu_ismi))
+        await interaction.response.send_message(f"İsminiz güncellendi! Birlik rolünüzü seçin:", view=RoleSelectView(), ephemeral=True)
 
-# 2. Birlik Seçim Menüsü
 class RoleSelectView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -56,37 +39,43 @@ class RoleSelectView(discord.ui.View):
         ]
     )
     async def select_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
-        guild = interaction.guild
-        user = interaction.user
-        
-        # Mevcut birlik rollerini temizle (isteğe bağlı, eskisini silsin istiyorsan)
         for role_id in ROLE_IDS.values():
-            role = guild.get_role(role_id)
-            if role in user.roles:
-                await user.remove_roles(role)
-        
-        # Yeni seçilenleri ekle
+            role = interaction.guild.get_role(role_id)
+            if role in interaction.user.roles:
+                await interaction.user.remove_roles(role)
         for role_name in select.values:
-            role = guild.get_role(ROLE_IDS[role_name])
+            role = interaction.guild.get_role(ROLE_IDS[role_name])
             if role:
-                await user.add_roles(role)
-        
-        await interaction.response.send_message("Kayıt tamamlandı! Birlik rollerin güncellendi.", ephemeral=True)
+                await interaction.user.add_roles(role)
+        await interaction.response.send_message("Kayıt tamamlandı!", ephemeral=True)
 
-# 3. Komut
 @bot.event
 async def on_ready():
-    await bot.tree.sync()
-    print(f'{bot.user} başarıyla başlatıldı ve komutlar senkronize edildi.')
+    print(f'{bot.user} hazır!')
 
-@bot.tree.command(name="kayit", description="RoK kayıt işlemini başlatır")
-async def kayit(interaction: discord.Interaction):
-    # RoK rolü kontrolü
-    rok_rol = interaction.guild.get_role(ROK_ROL_ID)
-    if not rok_rol or rok_rol not in interaction.user.roles:
-        await interaction.response.send_message("Bu komutu kullanmak için 'RoK' rolüne sahip olmalısınız.", ephemeral=True)
+@bot.command(name="kayit")
+async def kayit(ctx):
+    # 1. Mesajı hemen sil
+    await ctx.message.delete()
+    
+    # 2. RoK rolü kontrolü
+    rok_rol = ctx.guild.get_role(ROK_ROL_ID)
+    if rok_rol not in ctx.author.roles:
+        await ctx.send("Bu komutu kullanmak için RoK rolüne sahip olmalısınız.", delete_after=5)
         return
 
-    await interaction.response.send_modal(NicknameModal())
+    # 3. Modal göndermek için etkileşim gerekiyor (Slash komutunda olduğu gibi doğrudan modal açılmaz)
+    # Prefix komutlarında modal açmak için özel bir yapı gerek. 
+    # Bunun yerine kullanıcıya bir butonlu mesaj gönderelim, butona basınca modal açılsın.
+    view = discord.ui.View()
+    button = discord.ui.Button(label="Kaydı Başlat", style=discord.ButtonStyle.primary)
+    
+    async def button_callback(interaction: discord.Interaction):
+        await interaction.response.send_modal(NicknameModal())
+        
+    button.callback = button_callback
+    view.add_item(button)
+    
+    await ctx.send("Kayıt olmak için aşağıdaki butona basın:", view=view)
 
 bot.run(TOKEN)
